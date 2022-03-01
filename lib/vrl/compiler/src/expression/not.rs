@@ -2,6 +2,7 @@ use std::fmt;
 
 use diagnostic::{DiagnosticError, Label, Note, Urls};
 
+use crate::value::VrlValueConvert;
 use crate::{
     expression::{Expr, Noop, Resolved},
     parser::Node,
@@ -10,7 +11,7 @@ use crate::{
     Context, Expression, Span, State, TypeDef,
 };
 
-pub type Result = std::result::Result<Not, Error>;
+pub(crate) type Result = std::result::Result<Not, Error>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Not {
@@ -24,7 +25,7 @@ impl Not {
 
         if !type_def.is_boolean() {
             return Err(Error {
-                variant: ErrorVariant::NonBoolean(type_def.kind()),
+                variant: ErrorVariant::NonBoolean(type_def.into()),
                 not_span,
                 expr_span,
             });
@@ -48,7 +49,9 @@ impl Expression for Not {
     }
 
     fn type_def(&self, state: &State) -> TypeDef {
-        self.inner.type_def(state).boolean()
+        let fallible = self.inner.type_def(state).is_fallible();
+
+        TypeDef::boolean().with_fallibility(fallible)
     }
 
     fn compile_to_vm(&self, vm: &mut crate::vm::Vm) -> std::result::Result<(), String> {
@@ -76,7 +79,7 @@ pub struct Error {
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum ErrorVariant {
+pub(crate) enum ErrorVariant {
     #[error("non-boolean negation")]
     NonBoolean(Kind),
 }

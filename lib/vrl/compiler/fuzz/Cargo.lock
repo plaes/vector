@@ -83,6 +83,9 @@ name = "bytes"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c4872d67bab6358e59559027aa3b9157c53d9358c51423c17554809a8858e0f8"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "cc"
@@ -105,6 +108,7 @@ dependencies = [
  "libc",
  "num-integer",
  "num-traits",
+ "serde",
  "time",
  "winapi",
 ]
@@ -276,9 +280,9 @@ dependencies = [
 
 [[package]]
 name = "indoc"
-version = "1.0.3"
+version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e5a75aeaaef0ce18b58056d306c27b07436fbb34b8816c53094b76dd81803136"
+checksum = "e7906a9fababaeacb774f72410e497a1d18de916322e33797bb2cd29baa23c9e"
 dependencies = [
  "unindent",
 ]
@@ -398,7 +402,7 @@ dependencies = [
  "inherent",
  "lalrpop",
  "lalrpop-util",
- "lazy_static",
+ "once_cell",
  "regex",
  "serde",
  "snafu",
@@ -730,9 +734,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.78"
+version = "1.0.79"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d23c1ba4cf0efd44be32017709280b32d1cea5c3f1275c3b6d9e8bc54f758085"
+checksum = "8e8d9fa5c3b304765ce1fd9c4c8a3de2c8db365a5b91be52f186efc675681d95"
 dependencies = [
  "itoa",
  "ryu",
@@ -858,9 +862,9 @@ dependencies = [
 
 [[package]]
 name = "tracing"
-version = "0.1.29"
+version = "0.1.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "375a639232caf30edfc78e8d89b2d4c375515393e7af7e16f01cd96917fb2105"
+checksum = "f6c650a8ef0cd2dd93736f033d21cbd1224c5a967aa0c258d00fcf7dafef9b9f"
 dependencies = [
  "cfg-if",
  "pin-project-lite",
@@ -870,9 +874,9 @@ dependencies = [
 
 [[package]]
 name = "tracing-attributes"
-version = "0.1.18"
+version = "0.1.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4f480b8f81512e825f337ad51e94c1eb5d3bbdf2b363dcd01e2b19a9ffe3f8e"
+checksum = "8276d9a4a3a558d7b7ad5303ad50b53d58264641b82914b7ada36bd762e7a716"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -881,9 +885,9 @@ dependencies = [
 
 [[package]]
 name = "tracing-core"
-version = "0.1.21"
+version = "0.1.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1f4ed65637b8390770814083d20756f87bfa2c21bf2f110babdc5438351746e4"
+checksum = "03cfcb51380632a72d3111cb8d3447a8d908e577d31beeac006f836383d29a23"
 dependencies = [
  "lazy_static",
 ]
@@ -917,9 +921,23 @@ checksum = "8ccb82d61f80a663efe1f787a51b16b5a51e3314d6ac365b08639f52387b33f3"
 
 [[package]]
 name = "unindent"
-version = "0.1.7"
+version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f14ee04d9415b52b3aeab06258a3f07093182b88ba0f9b8d203f211a7a7d41c7"
+checksum = "514672a55d7380da379785a4d70ca8386c8883ff7eaae877be4d2081cebe73d8"
+
+[[package]]
+name = "value"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "chrono",
+ "indoc",
+ "lookup",
+ "ordered-float",
+ "regex",
+ "snafu",
+ "tracing",
+]
 
 [[package]]
 name = "vector_common"
@@ -930,9 +948,12 @@ dependencies = [
  "chrono-tz",
  "derivative",
  "metrics",
+ "ordered-float",
  "serde_json",
+ "smallvec",
  "snafu",
  "tracing",
+ "value",
 ]
 
 [[package]]
@@ -952,6 +973,7 @@ dependencies = [
  "thiserror",
  "vector_common",
  "vrl-compiler",
+ "vrl-core",
  "vrl-diagnostic",
  "vrl-parser",
 ]
@@ -973,7 +995,9 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tracing",
+ "value",
  "vector_common",
+ "vrl-core",
  "vrl-diagnostic",
  "vrl-parser",
 ]
@@ -987,6 +1011,15 @@ dependencies = [
  "vrl",
  "vrl-compiler",
  "vrl-parser",
+]
+
+[[package]]
+name = "vrl-core"
+version = "0.1.0"
+dependencies = [
+ "lookup",
+ "value",
+ "vrl-diagnostic",
 ]
 
 [[package]]

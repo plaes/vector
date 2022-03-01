@@ -1,19 +1,19 @@
 use std::time::Duration;
 
-use futures::{stream, FutureExt, StreamExt};
+use futures::{FutureExt, StreamExt};
 use http::Uri;
 use hyper::{Body, Request};
 use serde::{Deserialize, Serialize};
 use tokio_stream::wrappers::IntervalStream;
+use vector_core::ByteSizeOf;
 
 use self::types::Stats;
 use crate::{
     config::{self, Output, SourceConfig, SourceContext, SourceDescription},
-    event::Event,
     http::HttpClient,
     internal_events::{
-        BytesReceived, EventStoreDbMetricsHttpError, EventStoreDbStatsParsingError, EventsReceived,
-        StreamClosedError,
+        BytesReceived, EventStoreDbMetricsEventsReceived, EventStoreDbMetricsHttpError,
+        EventStoreDbStatsParsingError, StreamClosedError,
     },
     tls::TlsSettings,
 };
@@ -29,7 +29,7 @@ struct EventStoreDbConfig {
     default_namespace: Option<String>,
 }
 
-pub const fn default_scrape_interval_secs() -> u64 {
+const fn default_scrape_interval_secs() -> u64 {
     15
 }
 
@@ -61,6 +61,10 @@ impl SourceConfig for EventStoreDbConfig {
 
     fn source_type(&self) -> &'static str {
         "eventstoredb_metrics"
+    }
+
+    fn can_acknowledge(&self) -> bool {
+        false
     }
 }
 
@@ -116,12 +120,11 @@ fn eventstoredb(
                             Ok(stats) => {
                                 let metrics = stats.metrics(namespace.clone());
                                 let count = metrics.len();
-                                let byte_size = bytes.len();
+                                let byte_size = metrics.size_of();
 
-                                emit!(&EventsReceived { count, byte_size });
+                                emit!(&EventStoreDbMetricsEventsReceived { count, byte_size });
 
-                                let mut metrics = stream::iter(metrics).map(Event::Metric);
-                                if let Err(error) = cx.out.send_all(&mut metrics).await {
+                                if let Err(error) = cx.out.send_batch(metrics).await {
                                     emit!(&StreamClosedError { count, error });
                                     break;
                                 }
@@ -155,7 +158,10 @@ mod integration_tests {
         };
 
         let (tx, rx) = SourceSender::new_test();
-        let source = config.build(SourceContext::new_test(tx)).await.unwrap();
+        let source = config
+            .build(SourceContext::new_test(tx, None))
+            .await
+            .unwrap();
 
         tokio::spawn(source);
 

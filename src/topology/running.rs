@@ -1,6 +1,9 @@
 use std::{
     collections::{HashMap, HashSet},
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
 };
 
 use futures::{future, Future, FutureExt};
@@ -13,7 +16,7 @@ use vector_buffers::topology::channel::BufferSender;
 
 use crate::{
     config::{ComponentKey, Config, ConfigDiff, HealthcheckOptions, OutputId, Resource},
-    event::Event,
+    event::EventArray,
     shutdown::SourceShutdownCoordinator,
     topology::{
         build_or_log_errors, builder,
@@ -21,14 +24,16 @@ use crate::{
         fanout::{ControlChannel, ControlMessage},
         handle_errors, retain, take_healthchecks,
         task::TaskOutput,
-        BuiltBuffer, Outputs, TaskHandle, WatchRx, WatchTx,
+        BuiltBuffer, TaskHandle, WatchRx, WatchTx,
     },
     trigger::DisabledTrigger,
 };
 
+use super::{TapOutput, TapResource};
+
 #[allow(dead_code)]
 pub struct RunningTopology {
-    inputs: HashMap<ComponentKey, BufferSender<Event>>,
+    inputs: HashMap<ComponentKey, BufferSender<EventArray>>,
     outputs: HashMap<OutputId, ControlChannel>,
     source_tasks: HashMap<ComponentKey, TaskHandle>,
     tasks: HashMap<ComponentKey, TaskHandle>,
@@ -37,6 +42,7 @@ pub struct RunningTopology {
     pub(crate) config: Config,
     abort_tx: mpsc::UnboundedSender<()>,
     watch: (WatchTx, WatchRx),
+    pub(crate) running: Arc<AtomicBool>,
 }
 
 impl RunningTopology {
@@ -50,7 +56,8 @@ impl RunningTopology {
             source_tasks: HashMap::new(),
             tasks: HashMap::new(),
             abort_tx,
-            watch: watch::channel(HashMap::new()),
+            watch: watch::channel(TapResource::default()),
+            running: Arc::new(AtomicBool::new(true)),
         }
     }
 
@@ -79,6 +86,8 @@ impl RunningTopology {
     /// dropped then everything from this RunningTopology instance is fully
     /// dropped.
     pub fn stop(self) -> impl Future<Output = ()> {
+        // Update the API's health endpoint to signal shutdown
+        self.running.store(false, Ordering::Relaxed);
         // Create handy handles collections of all tasks for the subsequent
         // operations.
         let mut wait_handles = Vec::new();
@@ -183,7 +192,7 @@ impl RunningTopology {
 
         // Gives windows some time to make available any port
         // released by shutdown components.
-        // Issue: https://github.com/timberio/vector/issues/3035
+        // Issue: https://github.com/vectordotdev/vector/issues/3035
         if cfg!(windows) {
             // This value is guess work.
             tokio::time::sleep(Duration::from_millis(200)).await;
@@ -409,7 +418,7 @@ impl RunningTopology {
         }
 
         // Cleanup changed and collect buffers to be reused
-        let mut buffers = HashMap::new();
+        let mut buffers = HashMap::<ComponentKey, BuiltBuffer>::new();
         for key in &diff.sinks.to_change {
             if wait_for_sinks.contains(key) {
                 let previous = self.tasks.remove(key).unwrap();
@@ -433,8 +442,21 @@ impl RunningTopology {
 
     /// Rewires topology
     pub(crate) async fn connect_diff(&mut self, diff: &ConfigDiff, new_pieces: &mut Pieces) {
+        let mut tap_metadata = HashMap::new();
+        let mut watch_inputs = HashMap::new();
+        if !self.watch.0.is_closed() {
+            watch_inputs = new_pieces
+                .inputs
+                .iter()
+                .map(|(key, (_, inputs))| (key.clone(), inputs.clone()))
+                .collect();
+        }
+
         // Sources
         for key in diff.sources.changed_and_added() {
+            if let Some(task) = new_pieces.tasks.get(key) {
+                tap_metadata.insert(key, ("source", task.typetag().to_string()));
+            }
             self.setup_outputs(key, new_pieces).await;
         }
 
@@ -442,6 +464,9 @@ impl RunningTopology {
         // Make sure all transform outputs are set up before another transform
         // might try use it as an input
         for key in diff.transforms.changed_and_added() {
+            if let Some(task) = new_pieces.tasks.get(key) {
+                tap_metadata.insert(key, ("transform", task.typetag().to_string()));
+            }
             self.setup_outputs(key, new_pieces).await;
         }
 
@@ -464,14 +489,36 @@ impl RunningTopology {
 
         // Broadcast changes to subscribers.
         if !self.watch.0.is_closed() {
+            let outputs = self
+                .outputs
+                .clone()
+                .into_iter()
+                .flat_map(|(output_id, control_tx)| {
+                    tap_metadata.get(&output_id.component).map(
+                        |(component_kind, component_type)| {
+                            (
+                                TapOutput {
+                                    output_id,
+                                    component_kind,
+                                    component_type: component_type.clone(),
+                                },
+                                control_tx,
+                            )
+                        },
+                    )
+                })
+                .collect::<HashMap<_, _>>();
+            let mut removals = diff.sources.to_remove.clone();
+            removals.extend(diff.transforms.to_remove.iter().cloned());
             self.watch
                 .0
-                .send(
-                    self.outputs
-                        .iter()
-                        .map(|item| (item.0.clone(), item.1.clone()))
-                        .collect::<HashMap<_, _>>(),
-                )
+                .send(TapResource {
+                    outputs,
+                    inputs: watch_inputs,
+                    // Note, only sources and transforms are relevant. Sinks do
+                    // not have outputs to tap.
+                    removals,
+                })
                 .expect("Couldn't broadcast config changes.");
         }
     }
@@ -746,10 +793,9 @@ impl RunningTopology {
         &self.config
     }
 
-    /// Subscribe to topology changes. This will receive an `Outputs` currently, but may be
-    /// expanded in the future to accommodate `Inputs`. This is used by the 'tap' API to observe
+    /// Subscribe to topology changes. This is used by the 'tap' API to observe
     /// config changes, and re-wire tap sinks.
-    pub fn watch(&self) -> watch::Receiver<Outputs> {
+    pub fn watch(&self) -> watch::Receiver<TapResource> {
         self.watch.1.clone()
     }
 }

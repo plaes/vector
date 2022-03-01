@@ -17,6 +17,7 @@ use futures_util::Stream;
 use k8s_openapi::api::core::v1::{Namespace, Pod};
 use serde::{Deserialize, Serialize};
 use vector_common::TimeZone;
+use vector_core::ByteSizeOf;
 
 use crate::{
     config::{
@@ -189,6 +190,10 @@ impl SourceConfig for Config {
 
     fn source_type(&self) -> &'static str {
         COMPONENT_ID
+    }
+
+    fn can_acknowledge(&self) -> bool {
+        false
     }
 }
 
@@ -416,7 +421,7 @@ impl Source {
 
             emit!(&KubernetesLogsEventsReceived {
                 file: &line.filename,
-                byte_size,
+                byte_size: event.size_of(),
                 pod_name: file_info.as_ref().map(|info| info.pod_name),
             });
 
@@ -445,7 +450,7 @@ impl Source {
         let (events_count, _) = events.size_hint();
 
         let mut stream = partial_events_merger.transform(Box::pin(events));
-        let event_processing_loop = out.send_all(&mut stream);
+        let event_processing_loop = out.send_stream(&mut stream);
 
         let mut lifecycle = Lifecycle::new();
         {
@@ -548,7 +553,7 @@ const fn default_max_read_bytes() -> usize {
 
 const fn default_max_line_bytes() -> usize {
     // NOTE: The below comment documents an incorrect assumption, see
-    // https://github.com/timberio/vector/issues/6967
+    // https://github.com/vectordotdev/vector/issues/6967
     //
     // The 16KB is the maximum size of the payload at single line for both
     // docker and CRI log formats.

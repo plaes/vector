@@ -1,7 +1,38 @@
 use std::{borrow::Cow, time::Instant};
 
+use super::prelude::{error_stage, error_type};
 use metrics::{counter, histogram};
 use vector_core::internal_event::InternalEvent;
+
+#[derive(Debug)]
+pub struct AwsEcsMetricsEventsReceived<'a> {
+    pub byte_size: usize,
+    pub count: usize,
+    pub http_path: &'a str,
+}
+
+impl<'a> InternalEvent for AwsEcsMetricsEventsReceived<'a> {
+    fn emit_logs(&self) {
+        trace!(
+            message = "Events received.",
+            count = %self.count,
+            byte_size = %self.byte_size,
+            protocol = "http",
+            http_path = %self.http_path,
+        );
+    }
+
+    fn emit_metrics(&self) {
+        counter!("component_received_events_total", self.count as u64);
+        counter!(
+            "component_received_event_bytes_total",
+            self.byte_size as u64
+        );
+        // deprecated
+        counter!("events_in_total", self.count as u64);
+        counter!("processed_bytes_total", self.byte_size as u64);
+    }
+}
 
 #[derive(Debug)]
 pub struct AwsEcsMetricsRequestCompleted {
@@ -33,8 +64,8 @@ impl<'a> InternalEvent for AwsEcsMetricsParseError<'_> {
             message = "Parsing error.",
             endpoint = %self.endpoint,
             error = ?self.error,
-            stage = "processing",
-            error_type = "parse_failed",
+            stage = error_stage::PROCESSING,
+            error_type = error_type::PARSER_FAILED,
         );
         debug!(
             message = %format!("Failed to parse response:\\n\\n{}\\n\\n", self.body.escape_debug()),
@@ -47,9 +78,9 @@ impl<'a> InternalEvent for AwsEcsMetricsParseError<'_> {
         counter!("parse_errors_total", 1);
         counter!(
             "component_errors_total", 1,
-            "stage" => "processing",
+            "stage" => error_stage::PROCESSING,
             "error" => self.error.to_string(),
-            "error_type" => "parse_failed",
+            "error_type" => error_type::PARSER_FAILED,
             "endpoint" => self.endpoint.to_owned(),
         );
     }
@@ -66,7 +97,7 @@ impl InternalEvent for AwsEcsMetricsResponseError<'_> {
         error!(
             message = "HTTP error response.",
             endpoint = %self.endpoint,
-            stage = "receiving",
+            stage = error_stage::RECEIVING,
             error = %self.code,
             error_type = "http_error",
         );
@@ -76,9 +107,9 @@ impl InternalEvent for AwsEcsMetricsResponseError<'_> {
         counter!("http_error_response_total", 1);
         counter!(
             "component_errors_total", 1,
-            "stage" => "receiving",
+            "stage" => error_stage::RECEIVING,
             "error" => self.code.to_string(),
-            "error_type" => "http_error",
+            "error_type" => error_type::REQUEST_FAILED,
             "endpoint" => self.endpoint.to_owned(),
         );
     }
@@ -96,8 +127,8 @@ impl InternalEvent for AwsEcsMetricsHttpError<'_> {
             message = "HTTP request processing error.",
             endpoint = %self.endpoint,
             error = ?self.error,
-            stage = "receiving",
-            error_type = "http_error",
+            stage = error_stage::RECEIVING,
+            error_type = error_type::REQUEST_FAILED,
         );
     }
 
@@ -105,9 +136,9 @@ impl InternalEvent for AwsEcsMetricsHttpError<'_> {
         counter!("http_request_errors_total", 1);
         counter!(
             "component_errors_total", 1,
-            "stage" => "receiving",
+            "stage" => error_stage::RECEIVING,
             "error" => self.error.to_string(),
-            "error_type" => "http_error",
+            "error_type" => error_type::REQUEST_FAILED,
             "endpoint" => self.endpoint.to_owned(),
         );
     }

@@ -32,9 +32,9 @@ use super::util::{
 };
 use crate::{
     aws::{AwsAuthentication, RegionOrEndpoint},
-    config::{DataType, GenerateConfig, SinkConfig, SinkContext},
+    config::{GenerateConfig, Input, SinkConfig, SinkContext},
     http::HttpClient,
-    serde::to_string,
+    serde::json::to_string,
     sinks::{
         azure_common::{
             self,
@@ -93,7 +93,7 @@ pub struct DatadogArchivesSinkConfig {
     pub azure_blob: Option<AzureBlobConfig>,
     #[serde(default)]
     pub gcp_cloud_storage: Option<GcsConfig>,
-    pub tls: Option<TlsOptions>,
+    tls: Option<TlsOptions>,
     #[serde(default, skip_serializing)]
     batch: BatchConfig<DatadogArchivesDefaultBatchSettings>,
 }
@@ -404,7 +404,7 @@ impl Default for DatadogArchivesEncoding {
     fn default() -> Self {
         Self {
             inner: StandardEncodings::Ndjson,
-            reserved_attributes: RESERVED_ATTRIBUTES.to_vec().into_iter().collect(),
+            reserved_attributes: RESERVED_ATTRIBUTES.iter().copied().collect(),
             id_rnd_bytes: thread_rng().gen::<[u8; 8]>(),
             id_seq_number: AtomicU32::new(0),
             log_schema: log_schema(),
@@ -692,12 +692,16 @@ impl SinkConfig for DatadogArchivesSinkConfig {
         Ok(sink_and_healthcheck)
     }
 
-    fn input_type(&self) -> DataType {
-        DataType::Log
+    fn input(&self) -> Input {
+        Input::log()
     }
 
     fn sink_type(&self) -> &'static str {
         "datadog_archives"
+    }
+
+    fn can_acknowledge(&self) -> bool {
+        true
     }
 }
 
