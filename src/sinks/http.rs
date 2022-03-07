@@ -69,7 +69,6 @@ impl EncodingConfigMigrator for Migrator {
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
 pub struct HttpSinkConfig {
     pub uri: UriSerde,
     pub method: Option<HttpMethod>,
